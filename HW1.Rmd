@@ -1,0 +1,222 @@
+---
+title: "HW1"
+author: "Valeria"
+date: "2024-03-18"
+output:
+  html_document:
+    keep_md: yes
+---
+
+```{r}
+library(cowplot)
+library(readxl)
+library(corrplot)
+# Data processing
+library(tidyr)
+library(dplyr)
+library(broom)
+
+# Plots
+library(ggmap)
+theme_set(theme_bw(base_size = 12))
+
+library(ggvegan)
+
+# Multivariate statistics
+library(vegan)
+
+library(ggrepel)
+library(ggsci)
+```
+
+**1. Make EDA for data (5 points).** Download data
+
+```{r}
+data(BCI)
+data(BCI.env)
+```
+
+```{r}
+summary(BCI)
+```
+```{r}
+summary(BCI.env)
+```
+UTM.EW:
+UTM coordinates (zone 17N) East-West.
+
+UTM.NS:
+UTM coordinates (zone 17N) North-South.
+
+Precipitation:
+Precipitation in mm per year.
+
+Elevation:
+Elevation in m above sea level.
+
+Age.cat:
+Forest age category.
+
+Geology:
+The Underlying geological formation.
+
+Habitat:
+Dominant habitat type based on the map of habitat types in 25 grid cells in each plot (Harms et al. 2001, excluding streamside habitat). The habitat types are Young forests (ca. 100 years), old forests on > 7 degree slopes (Old Slope), old forests under 152 m elevation (Old Low) and at higher elevation (OldHigh) and Swamp forests.
+
+River:
+"Yes" if there is streamside habitat in the plot.
+
+EnvHet:
+Environmental Heterogeneity assessed as the Simpson diversity of frequencies of Habitat types in 25 grid cells in the plot.
+```{r}
+sum(is.na(BCI))
+boxplot(BCI)
+sum(is.na(BCI.env))
+boxplot(BCI.env)
+```
+We don't have any NA values and taking into account that BCI data set is the records detailed information about tree species and their characteristics in the Barro Colorado Island (BCI) in Panama, I don't think that we need to filter outlayers. 
+```{r}
+mds <- metaMDS(BCI, dist = "bray")
+stressplot(mds)
+``` 
+
+
+
+
+```{r}
+sites <- data.frame(BCI.env, scores(mds, display = "sites"))
+head(sites, 2)
+```
+```{r}
+species <- data.frame(scores(mds, display = "species"))
+species$Species <- rownames(species)
+head(species, 10)
+```
+
+```{r}
+
+gg_ord <- ggplot() +
+  geom_point(data = sites, 
+             aes(x = NMDS1, y = NMDS2, colour = Habitat, 
+                 shape = Stream), alpha = 0.5)
+
+gg_ord_sp <- gg_ord +
+  geom_text(data = species, 
+            aes(x = NMDS1, y = NMDS2, 
+                label = Species))
+gg_ord
+```
+
+
+```{r}
+BCI.env["tree_count"] <- rowSums(BCI)
+
+
+env_plots <- lapply(names(BCI.env), function(var_x) {
+  p <-
+    ggplot(BCI.env) +
+    aes_string(var_x)
+
+  if (is.numeric(BCI.env[[var_x]])) {
+    p <- p + geom_density()
+  } else {
+    p <- p + geom_bar()
+  }
+})
+
+plot_grid(plotlist = env_plots)
+```
+
+
+```{r}
+pca_result <- capscale(BCI ~ ., data = BCI.env, distance = "bray")
+
+
+plot(pca_result)
+```
+z
+## NMDS
+
+```{r}
+nmds <- metaMDS(BCI, dist = "bray", k = 3)
+ordiplot(nmds, type = "text")
+ordiplot(nmds, type = "points")
+```
+
+## Relationship between the ordination and environmental parameters
+
+```{r}
+ef <- envfit(nmds, BCI.env)
+```
+
+```{r}
+plot(nmds, type="t", display="sites")
+plot(ef, p.max = 0.001, cex=0.5)
+```
+
+## Ordination plot with variables
+
+```{r}
+plot(nmds, type="n")
+points(nmds, display="sites", pch = c(1, 2, 3, 4, 5) [as.numeric(BCI.env$Habitat)],col = c("black", "red") [as.numeric(BCI.env$Stream)])
+legend(
+  "topright",
+  legend = c(levels(BCI.env$Habitat)),
+  pch = c(1, 2, 3 ,4 ,5),
+  title = "Habitat"
+)
+
+legend(
+  "topleft",
+  legend = c(levels(BCI.env$Stream)),
+  pch = 1,
+  title = "Stream",
+  col = c("black", "red")
+)
+
+legend(
+  "bottomleft",
+  paste0("stress = ",round(nmds$stress, 3), cex = 1)
+)
+```
+
+
+
+
+```{r}
+mds_env <- data.frame(nmds$points)
+mds_env$habitat <- as.factor(BCI.env$Habitat)
+mds_env$envhet <- BCI.env$EnvHet
+mds_env$envhet_size <- mds_env$envhet
+mds_env$plot <- rownames(mds_env)
+```
+
+```{r}
+mds_env %>% 
+  ggplot(aes(MDS1, MDS2, label = plot, col = habitat)) +
+  geom_text_repel(show.legend = F) +
+  geom_point(aes(size = envhet)) + 
+  scale_color_startrek() +
+  theme_classic()
+```
+
+Plotting only significant values
+
+```{r}
+plot(nmds, display = "sites")
+plot(ef, p.max = 0.05) 
+```
+
+
+
+```{r}
+os_UTM_EW <- ordisurf(nmds, BCI.env$UTM.EW, method = "REML", plot = FALSE)
+
+plot(os_UTM_EW)
+orditorp(nmds,
+    display = "species"
+)
+os_UTM_EW
+```
+##Conclusions
+An analysis was made using the NDS method, judging by the graphs, there is a dependence of the type of trees on latitude. 
