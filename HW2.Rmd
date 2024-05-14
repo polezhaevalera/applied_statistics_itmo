@@ -1,0 +1,230 @@
+---
+title: "HW2"
+author: "Valeria"
+date: "2024-05-14"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+Libraries
+```{r}
+library(tidyr)
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library(ape)
+library(pvclust)
+library(golubEsets)
+```
+
+## data
+
+The data are from Golub et al. These are the combined training samples and test samples. There are 47 patients with acute lymphoblastic leukemia (ALL) and 25 patients with acute myeloid leukemia (AML).
+
+```{r}
+golub <- data.frame(Golub_Merge)[1:7129]
+rownames(golub) <- paste(Golub_Merge$ALL.AML, rownames(golub), sep = "_")
+
+#group vector to check
+Golub_Merge$ALL.AML
+
+```
+
+```{r}
+summary(golub)
+```
+```{r}
+if(sum(is.na(golub)) > 0) {
+  cat("There are missing values in the dataset")
+} else {
+  cat("No missing values in the dataset")
+}
+```
+## Density plot
+```{r}
+
+golub %>%
+  colMeans() %>%
+  as_tibble() %>%
+  arrange(value) %>%
+  ggplot(aes(x = value)) +
+  geom_density() +
+  xlab("Raw data means")
+
+```
+The graph is not exactly symmetrical, it is slightly shifted to the right
+##normalization
+
+
+```{r}
+log_golub <-  decostand(golub, method = "log", MARGIN = 2)
+log_golub %>%
+  colMeans() %>%
+  as_tibble() %>%
+  arrange(value) %>%
+  ggplot(aes(x = value)) +
+  geom_density() +
+  xlab("Log norm data means")
+
+
+```
+```{r}
+stnd_golub <-  decostand(golub, method = "standardize", MARGIN = 2)
+stnd_golub %>%
+  colMeans() %>%
+  as_tibble() %>%
+  arrange(value) %>%
+  ggplot(aes(x = value)) +
+  geom_density() +
+  xlab("Standatrization data means")
+
+
+```
+Log normilized data looks better 
+##Distances
+```{r}
+euclidean_dist <- vegdist(log_golub, method = "euclidean")
+manhattan_dist <- vegdist(log_golub, method = "manhattan")
+canberra_dist <- vegdist(log_golub, method = "canberra")
+gower_dist <- vegdist(log_golub, method = "gower")
+
+# Set up the plotting layout for better visualization
+par(mfrow = c(2, 3))
+
+# Plot histograms of the distances with customized colors and labels
+hist(euclidean_dist, main = "Euclidean Distance", xlab = "Distance", col = "skyblue", border = "black")
+hist(manhattan_dist, main = "Manhattan Distance", xlab = "Distance", col = "lightgreen", border = "black")
+hist(canberra_dist, main = "Canberra Distance", xlab = "Distance", col = "salmon", border = "black")
+hist(gower_dist, main = "Gower Distance", xlab = "Distance", col = "orange", border = "black")
+
+# Add a common title for all plots
+mtext("Comparison of Different Distance Metrics", line = 0.5, cex = 1.2, outer = TRUE)
+```
+
+
+```{r}
+disatances <- data.frame(Euclidean = as.numeric(euclidean_dist), Manhattan = as.numeric(manhattan_dist), Canberra = as.numeric(canberra_dist),Gower = as.numeric(gower_dist))
+Pl_hist <- ggplot(disatances) + geom_density()
+
+Pl_euclidean <- Pl_hist + aes(x = Euclidean) + labs(x = "euclidean")
+Pl_manhattan <- Pl_hist + aes(x = Manhattan) + labs(x = "manhattan")
+Pl_gower <- Pl_hist + aes(x = Gower) + labs(x = "gower")
+Pl_canberra <- Pl_hist + aes(x = Canberra) + labs(x = "canberra")
+grid.arrange(Pl_euclidean, Pl_manhattan, Pl_gower, Pl_canberra)
+```
+
+##Clustering
+```{r}
+
+clustering <- function(dist) {
+  dists <- c("Euclidean", "Manhattan", "Canberra", "Gower")
+  methods <- c("single", "complete", "average", "ward.D2")
+  
+  for (m in methods) {
+    hclust <- hclust(dist, method = m)
+    corr <- cor(dist, as.dist(cophenetic(hclust)))
+    cat("nClustering Method:", m, "n")
+    print(corr)
+    }
+}
+
+# Calculating and plotting clustering for different distance metrics
+clustering(euclidean_dist)
+clustering(manhattan_dist)
+clustering(canberra_dist)
+clustering(gower_dist)
+
+# Performing hierarchical clustering using Euclidean distance
+avg_euc <- hclust(euc, method = "average")
+ph_avg_euc <- as.phylo(avg_euc)
+plot(ph_avg_euc, type = "phylogram", main = "Hierarchical Clustering using Euclidean Distance")
+axisPhylo()
+
+# Performing hierarchical clustering using Manhattan distance
+single_man <- hclust(manhattan_dist, method = "single")
+ph_man <- as.phylo(single_man)
+plot(ph_man, type = "phylogram", main = "Hierarchical Clustering using Manhattan Distance")
+axisPhylo()
+
+# Performing hierarchical clustering using Canberra distance
+hclust_canb <- hclust(canb, method = "complete")
+ph_canb <- as.phylo(hclust_canb)
+plot(ph_canb, type = "phylogram", main = "Hierarchical Clustering using Canberra Distance")
+axisPhylo()
+
+# Performing hierarchical clustering using Gower distance
+
+hclust_gower <- hclust(gower_dist, method = "average") # Using "average" method for Gower distance
+ph_gower <- as.phylo(hclust_gower)
+plot(ph_gower, type = "phylogram", main = "Hierarchical Clustering using Gower Distance")
+axisPhylo()
+```
+Clustering using Manhattan distance looks the most strange, Euclidian and Gower metrics have some common.
+```{R}
+# Defining methods and distances
+distances <- list(Euclidean = euclidean_dist, Manhattan = manhattan_dist, Canberra = canberra_dist, Gower = gower_dist)
+
+methods <- c("single", "complete", "average", "ward.D2")
+
+# Function to perform clustering and evaluate its quality
+clustering_evaluation <- function(data, indices, clustering_method) {
+  # Performing clustering
+  clusters <- clustering_method(data)
+  
+  # Evaluating clustering quality using correlation coefficient
+  correlation <- cor(as.numeric(group_vector[indices]), clusters$order, method = "spearman")
+  
+  return(correlation)
+}
+
+# Function to compare clustering methods using correlation test
+correlation_test <- function(distances, methods) {
+  results <- data.frame(distance_metric = character(), clustering_method = character(), correlation_value = numeric())
+  
+  for (dist_name in names(distances)) {
+    dist <- distances[[dist_name]]
+    for (method in methods) {
+      cat("Distance:", dist_name, "Method:", method, "\n")
+      correlation_value <- clustering_correlation_test(dist, method)
+      results <- rbind(results, data.frame(distance_metric = dist_name, clustering_method = method, correlation_value = correlation_value))
+    }
+  }
+  
+  # Identifying which metric is better based on the highest correlation value
+  best_metric <- results[which.max(results$correlation_value), "distance_metric"]
+  cat("The best distance metric is:", best_metric)
+}
+
+# Function to perform clustering and correlation test
+clustering_correlation_test <- function(dist, method) {
+  hclust_result <- hclust(dist, method = method)
+  corr <- cor(dist, as.dist(cophenetic(hclust_result)))
+  cat("Clustering Correlation:", corr, "\n")
+  return(corr)
+}
+
+# Call the correlation test function with the defined distances and methods
+correlation_test(distances, methods)
+
+```
+The best distance metric is Manhattan, althow the plot was the most strange. 
+
+```{r, fig.width=10, fig.height=5}
+plot(pvclust(t(golub), method.hclust = "average", nboot = 70, 
+             method.dist = "manhattan", parallel = TRUE, iseed = 100))
+
+
+```
+
+Сlustering analysis on samples of Acute Myeloid Leukemia (AML) and Acute Lymphoblastic Leukemia (ALL) was performed to investigate the separation of the two types of leukemia based on gene expression data.
+
+Results:
+After clustering the samples and according to the bootstrap results, almost all the samples of AML were successfully separated from ALL based on gene expression patterns. However, it was noted that some samples still appeared mixed up and showed overlap between the AML and ALL clusters.
+
+If we consider that there were no mistakes in the samles and no contamination, it can be possible, that these types of cansers have some genes with the same expression profile [1]. Also, there could be a genetic heterogeneity within the samples. Maybe the problem was in preprocessing or batch effect could happen.
+
+##References. 
+1. https://www.sciencedirect.com/science/article/abs/pii/S0344033815001491
