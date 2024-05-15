@@ -1,0 +1,192 @@
+---
+title: "HW3"
+author: "Valeria"
+date: "2024-05-15"
+output:
+  html_document:
+    keep_md: yes
+---
+
+```{r}
+library(readxl)
+library(vegan)
+library(ggplot2)
+library(plotly)
+library(impute)
+library(factoextra)
+library(psych)
+library(ggforce)
+library(rstatix)
+```
+
+##EDA
+
+(Landscape.ID 1 - LS1, 3 - LS2, 5 - LS3).
+
+Only in the heavily modified landscape in each neighborhood were sites categorized into groups based on habitat type 
+(Habitat: remnants of natural vegetation, swale plantings, fields with crops or under fallow) and the degree of connectivity with patches of natural vegetation (Connectivity: low < 63%, medium 63-88%, high 88%; fully connected sites).
+
+# -- Various blood characteristics were measured in lizards, of which you will need:
+ 
+# -- Tot_WBC - total number of white blood cells
+# -- Het_ABS is the total number of heterophils.
+# -- Lym_ABS is the total number of lymphocytes.
+# -- H:L Ratio - ratio of heterophils to lymphocytes
+# -- Mon_ABS - monocyte count
+# -- OthG_ABS is the number of other granulocytes.
+
+
+
+```{r}
+
+data <- read_excel("Sleepy lizard.xlsx")
+
+head(data)
+
+str(data)
+
+summary(data)
+
+```
+
+Some colums looks strange and we don't need them. 
+```{r}
+columns_to_keep <- c("Treatment", "Habitat", "Landscape ID", "Connectivity",  "Tot_WBC", "Het_ABS", "Lym_ABS", "H:L Ratio", "Mon_ABS", "OthG_ABS", "LBSI")
+df <- data[, columns_to_keep]
+head(df)
+```
+```{r}
+df$Habitat <- as.factor(df$Habitat)
+df$'Landscape_ID' <- as.factor(df$'Landscape ID')
+df <- df[, !(names(df) %in% "Landscape ID")]
+df$Connectivity <- as.factor(df$Connectivity)
+df$Treatment <- as.factor(df$Treatment)
+str(df)
+```
+Let's make a correlation matrix to look briefly whether there is any dependence between variables
+```{r, fig.width=10, fig.height=5}}
+
+numeric_data <- df[, sapply(df, is.numeric)]
+factor_data <- df[, sapply(df, is.factor)]
+
+dummy_factor_data <- model.matrix(~. - 1, data = factor_data)
+
+all_data <- cbind(numeric_data, dummy_factor_data)
+
+
+correlation_matrix <- cor(all_data)
+
+ggplot(data = melt(correlation_matrix), aes(Var1, Var2, fill=value)) + 
+  geom_tile() +
+  theme_minimal() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1)) +
+  coord_fixed()
+
+# Этот код поможет построить красочную тепловую карту корреляций для всех числовых и факторных переменных в датафрейме
+
+```
+```{r}
+if(sum(is.na(df)) > 0) {
+  cat("There are missing values in the dataset")
+} else {
+  cat("No missing values in the dataset")
+}
+```
+
+```{r}
+head(numeric_data)
+boxplot(numeric_data)
+
+```
+Data shoud be normilized somehow. 
+
+```{r}
+log_numeric_data <- scale(log(numeric_data + 1), scale = FALSE)
+boxplot(log_numeric_data)
+
+```
+
+
+
+```{r}
+boxplot(log_numeric_data)
+
+```
+
+
+
+
+```{r}
+blood_pca <- prcomp(log_numeric_data)$x %>%
+  as.data.frame() %>%
+  select(PC1, PC2) %>%
+  mutate(Treatment = df$Treatment, Habitat = df$Habitat)
+
+ggplot(blood_pca, aes(x = PC1, y = PC2, shape = Treatment, col = Habitat)) +
+  geom_point(size = 3) +
+  geom_mark_ellipse(aes(col = Treatment, fill = Treatment))
+
+s_pca<-summary(blood_pca)
+
+```
+
+Distinct groups based on treatments show separation in PCA analysis. In heavily modified landscapes, there are no clear clusters linked to connectivity or habitat types.
+
+```{r}
+s_pca
+```
+## perMANOVA
+
+### Conditions for applicability
+
+As for any analysis of variance, it is better if the number of observations in the groups is equal. Alas, we cannot boast of such a thing. So the second condition is especially important for us...
+
+Equality of variance in groups is necessary for perMANOVA. Let's check.
+
+
+```{r}
+column_names <- c("Treatment", "Habitat", "Connectivity")
+
+blood_dist <- vegdist(log_numeric_data, method = "euclidean")
+
+blood_pco_list <- lapply(column_names, function(column_names) {
+  blood_pco <- betadisper(blood_dist, df[[column_names]])
+  plot(blood_pco)
+  print(anova(blood_pco))
+  return(blood_pco)
+})
+
+```
+Отлично. Дисперсии в группах значимо не отличаются.
+
+##1a
+```{r}
+permanova_Treatment <- adonis2(log_numeric_data ~ df$Treatment, method = "euclidean")
+permanova_Treatment
+```
+According to the results of analysis of variance, there are significant differences.
+##1b
+```{r}
+df_1b <- log_numeric_data %>% as.data.frame() %>% filter(df$Treatment == 2)
+habitat_1b <- subset(df, Treatment == 2)$Habitat
+```
+
+```{r}
+permanova_Habitat <- adonis2(df_1b ~ habitat_1b, method = "euclidean")
+permanova_Habitat
+```
+According to the results of analysis of variance, there are significant differences.
+##1c
+```{r}
+connectivity_1c <- subset(df, Treatment == 2)$Connectivity
+permanova_Connectivity <- adonis2(df_1b ~ connectivity_1c, method = "euclidean")
+permanova_Connectivity
+```
+According to the results of analysis of variance, there are significant differences.
+##2
+```{r}
+permanova_Connectivity_Habitat <- adonis2(df_1b ~ connectivity_1c + habitat_1b, method = "euclidean")
+permanova_Connectivity_Habitat
+```
+From the previous tasks we could see significant differences, however when considering habitat type and connectivity, there is no notable variation in the blood composition of lizards from heavily altered landscapes.Taking into account PCA results, treatment is the primary factor.
